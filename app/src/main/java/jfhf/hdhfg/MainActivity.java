@@ -33,13 +33,16 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
 
-    private static final String API_URL = "https://api.football-data.org/v4/matches";
-    // ضع مفتاح API الخاص بك هنا إذا كان لديك مفتاح خاص (اختياري للطلبات المحدودة)
+    // تحديث الرابط ليشمل نطاق زمني من اليوم ولمدة 7 أيام قادمة
+    private String API_URL;
     private static final String API_KEY = ""; 
     private static final String STREAM_URL = "http://mag.tiger-ott.net/live/KEBD2U/7F8W2T/242255.m3u8";
 
@@ -57,8 +60,19 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        setupDateRangeUrl();
         initUI();
         fetchMatches();
+    }
+
+    private void setupDateRangeUrl() {
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
+        Calendar calendar = Calendar.getInstance();
+        String startDate = sdf.format(calendar.getTime());
+        calendar.add(Calendar.DAY_OF_YEAR, 7);
+        String endDate = sdf.format(calendar.getTime());
+
+        API_URL = "https://api.football-data.org/v4/matches?dateFrom=" + startDate + "&dateTo=" + endDate;
     }
 
     private void initUI() {
@@ -70,9 +84,8 @@ public class MainActivity extends Activity {
         contentLayout.setLayoutParams(new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        // شريط العنوان العلوي
         TextView header = new TextView(this);
-        header.setText("مباريات اليوم & البث المباشر");
+        header.setText("مباريات الأسبوع & البث المباشر");
         header.setTextColor(Color.WHITE);
         header.setTextSize(20);
         header.setTypeface(null, Typeface.BOLD);
@@ -80,7 +93,6 @@ public class MainActivity extends Activity {
         header.setPadding(24, 40, 24, 20);
         contentLayout.addView(header);
 
-        // زر تشغيل beIN SPORTS 1
         Button liveBtn = new Button(this);
         liveBtn.setText("📺 بث مباشر: beIN SPORTS 1");
         liveBtn.setTextColor(Color.WHITE);
@@ -93,7 +105,6 @@ public class MainActivity extends Activity {
         liveBtn.setOnClickListener(v -> startLiveStream());
         contentLayout.addView(liveBtn);
 
-        // قائمة المباريات داخل ScrollView
         ScrollView scrollView = new ScrollView(this);
         scrollView.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.0f));
@@ -106,14 +117,12 @@ public class MainActivity extends Activity {
         contentLayout.addView(scrollView);
         rootLayout.addView(contentLayout);
 
-        // مؤشر التحميل
         progressBar = new ProgressBar(this);
         FrameLayout.LayoutParams pbParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         pbParams.gravity = Gravity.CENTER;
         rootLayout.addView(progressBar, pbParams);
 
-        // حاوية مشغل البث (مخفية في البداية)
         playerContainer = new FrameLayout(this);
         playerContainer.setBackgroundColor(Color.BLACK);
         playerContainer.setVisibility(View.GONE);
@@ -125,7 +134,6 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         playerContainer.addView(playerView);
 
-        // زر إغلاق البث والعودة للمباريات
         Button closePlayerBtn = new Button(this);
         closePlayerBtn.setText("✕ إغلاق البث");
         closePlayerBtn.setTextColor(Color.WHITE);
@@ -198,7 +206,7 @@ public class MainActivity extends Activity {
 
         if (matches == null || matches.length() == 0) {
             TextView emptyText = new TextView(this);
-            emptyText.setText("لا توجد مباريات معروضة حالياً");
+            emptyText.setText("لا توجد مباريات معروضة في هذا النطاق");
             emptyText.setTextColor(Color.GRAY);
             emptyText.setTextSize(16);
             emptyText.setGravity(Gravity.CENTER);
@@ -223,13 +231,15 @@ public class MainActivity extends Activity {
             String status = match.optString("status", "");
             String homeScore = (fullTime != null && !fullTime.isNull("home")) ? String.valueOf(fullTime.optInt("home")) : "-";
             String awayScore = (fullTime != null && !fullTime.isNull("away")) ? String.valueOf(fullTime.optInt("away")) : "-";
+            
+            String utcTime = match.optString("utcDate", "");
 
-            matchesContainer.addView(createMatchCard(homeName, homeCrest, awayName, awayCrest, homeScore, awayScore, status));
+            matchesContainer.addView(createMatchCard(homeName, homeCrest, awayName, awayCrest, homeScore, awayScore, status, utcTime));
         }
     }
 
     private View createMatchCard(String homeName, String homeCrest, String awayName, String awayCrest,
-                                 String homeScore, String awayScore, String status) {
+                                 String homeScore, String awayScore, String status, String time) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setBackgroundColor(Color.parseColor("#1F1F1F"));
@@ -240,26 +250,23 @@ public class MainActivity extends Activity {
         cardParams.setMargins(0, 0, 0, 20);
         card.setLayoutParams(cardParams);
 
-        // صف عرض حالة المباراة
         TextView statusText = new TextView(this);
-        statusText.setText(status);
+        String displayStatus = status.equals("TIMED") ? "موعد: " + time.substring(0, 10) : status;
+        statusText.setText(displayStatus);
         statusText.setTextColor(Color.parseColor("#00E676"));
         statusText.setTextSize(12);
         statusText.setGravity(Gravity.CENTER);
         card.addView(statusText);
 
-        // صف الفريقين والنتيجة والشعارات
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // الفريق المستضيف
         LinearLayout homeCol = createTeamColumn(homeName, homeCrest);
         row.addView(homeCol);
 
-        // النتيجة
         TextView scoreText = new TextView(this);
         scoreText.setText(homeScore + "  :  " + awayScore);
         scoreText.setTextColor(Color.WHITE);
@@ -269,7 +276,6 @@ public class MainActivity extends Activity {
         scoreText.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
         row.addView(scoreText);
 
-        // الفريق الضيف
         LinearLayout awayCol = createTeamColumn(awayName, awayCrest);
         row.addView(awayCol);
 
@@ -297,7 +303,6 @@ public class MainActivity extends Activity {
         nameView.setPadding(6, 8, 6, 0);
         col.addView(nameView);
 
-        // تحميل الصورة في الخلفية بالـ Java الخالص
         loadCrestImage(crestUrl, logoView);
 
         return col;
